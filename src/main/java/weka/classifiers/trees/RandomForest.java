@@ -169,7 +169,12 @@ public class RandomForest
     
     return result;
   }
-  
+
+  /**
+   * Return the bagger.
+   */
+  public Bagging getBagger() { return m_bagger; }
+
   /**
    * Returns the tip text for this property
    * @return tip text for this property suitable for

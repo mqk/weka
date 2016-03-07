@@ -620,7 +620,12 @@ public class Bagging
 
     return text.toString();
   }
-  
+
+  /**
+   * Return the base classifiers.
+   */
+  public Classifier[] getClassifiers() { return m_Classifiers; }
+
   /**
    * Builds the classifier to generate a partition.
    */
