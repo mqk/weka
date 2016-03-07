@@ -333,6 +333,25 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
     m_MaxDepth = value;
   }
 
+
+  /**
+   * Backfill the class distribution for each node of the tree.
+   */
+  public void backfillClassDistribution() {
+      if (m_Tree == null) {
+          System.out.println("RandomTree: no model has been built yet.");
+      } else {
+          m_Tree.traverseAndBackfill();
+          double[] classDistribution = m_Tree.m_ClassDistribution;
+
+          String message = "Overall class distribution: ";
+          for (double cd : classDistribution) {
+              message += cd + " ";
+          }
+          System.out.println(message);
+      }
+  }
+
   /**
    * Lists the command-line options for this classifier.
    * 
@@ -661,6 +680,17 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
   }
 
   /**
+   * Outputs the decision tree in JSON format.
+   */
+  public String toJSON() {
+      if (m_Tree == null) {
+          return "RandomTree: no model has been built yet.";
+      } else {
+          return "{\n  \"model\":" + m_Tree.toJSON(null, 1) + "\n}\n";
+      }
+  }
+
+  /**
    * Returns graph describing the tree.
    * 
    * @return the graph describing the tree
@@ -925,6 +955,8 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
         sum = Utils.sum(m_ClassDistribution);
         maxIndex = Utils.maxIndex(m_ClassDistribution);
         maxCount = m_ClassDistribution[maxIndex];
+      } else {
+          return " : (empty class distribution)";
       }
       return " : " + m_Info.classAttribute().value(maxIndex) + " ("
           + Utils.doubleToString(sum, 2) + "/"
@@ -955,7 +987,7 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
               text.append("|   ");
             }
             text.append(m_Info.attribute(m_Attribute).name() + " = "
-                + m_Info.attribute(m_Attribute).value(i));
+                + m_Info.attribute(m_Attribute).value(i) + leafString());
             text.append(m_Successors[i].toString(level + 1));
           }
         } else {
@@ -966,14 +998,14 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
             text.append("|   ");
           }
           text.append(m_Info.attribute(m_Attribute).name() + " < "
-              + Utils.doubleToString(m_SplitPoint, 2));
+              + Utils.doubleToString(m_SplitPoint, 2) + leafString());
           text.append(m_Successors[0].toString(level + 1));
           text.append("\n");
           for (int j = 0; j < level; j++) {
             text.append("|   ");
           }
           text.append(m_Info.attribute(m_Attribute).name() + " >= "
-              + Utils.doubleToString(m_SplitPoint, 2));
+              + Utils.doubleToString(m_SplitPoint, 2) + leafString());
           text.append(m_Successors[1].toString(level + 1));
         }
 
@@ -983,6 +1015,181 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
         return "RandomTree: tree can't be printed";
       }
     }
+
+
+      /**
+       * Helper class to hold node predicates.
+       */
+      public class NodePredicate
+      {
+          final String name;
+          final String operator;
+          final String value;
+          final Boolean isNominal;
+
+          public NodePredicate(String n, String o, String v, Boolean in) {
+              this.name = n;
+              this.operator = o;
+              this.value = v;
+              this.isNominal = in;
+          }
+
+          public String toJSON(int level) {
+              StringBuilder text = new StringBuilder(128);
+              Indentation indentation = new Indentation(2);
+              text.append(indentation.indent(level)).append("\"predicate\": {\n");
+              text.append(indentation.indent(level+1)).append("\"operator\": \"").append(operator).append("\",\n");
+              text.append(indentation.indent(level+1)).append("\"field\": \"").append(name).append("\",\n");
+              text.append(indentation.indent(level+1)).append("\"value\": ")
+                      .append((isNominal) ? "\"" : "")
+                      .append(value)
+                      .append((isNominal) ? "\"" : "")
+                      .append("\n");
+              text.append(indentation.indent(level)).append("}");
+
+              return text.toString();
+          }
+      }
+
+      protected class Indentation
+      {
+          final public String baseIndent;
+
+          public Indentation(int numSpacesPerIndent) {
+              baseIndent = String.format("%" + numSpacesPerIndent + "s", "");
+          }
+
+          public String indent(int numIndent) {
+              StringBuilder text = new StringBuilder();
+              for (int i = 0; i < numIndent; i++) {
+                  text.append(this.baseIndent);
+              }
+              return text.toString();
+          }
+      }
+
+      protected String transformedClass(int i) {
+          if ("0".equals(m_Info.classAttribute().value(i))) {
+              return "OVERDUE";
+          } else if ("1".equals(m_Info.classAttribute().value(i))) {
+              return "PAID_OFF";
+          } else {
+              return "UNKNOWN-" + m_Info.classAttribute().value(i);
+          }
+      }
+
+      /**
+       * Recursively outputs the tree in JSON format.
+       *
+       */
+      protected String toJSON(NodePredicate predicate, int level) {
+          double sum = 0, maxCount = 0;
+          int maxIndex = 0;
+
+          try {
+              sum = Utils.sum(m_ClassDistribution);
+              maxIndex = Utils.maxIndex(m_ClassDistribution);
+              maxCount = m_ClassDistribution[maxIndex];
+          } catch(NullPointerException e) {
+              System.err.println("Empty m_ClassDistribution!");
+              return "";
+          }
+
+          String output = "\"" + transformedClass(maxIndex) + "\"";
+          double confidence = 0.0;
+          if (sum > 0.0) {
+              confidence = maxCount / sum;
+          }
+
+          Indentation indentation = new Indentation(2);
+
+          StringBuilder text = new StringBuilder(2048);
+
+          text.append(indentation.indent(level)).append("{\n");
+          text.append(indentation.indent(level+1)).append("\"count\": ").append(Utils.doubleToString(sum, 2)).append(",\n");
+          text.append(indentation.indent(level+1)).append("\"confidence\": ").append(Utils.doubleToString(confidence, 5)).append(",\n");
+          if (predicate == null) {
+              text.append(indentation.indent(level+1)).append("\"predicate\": true,\n");
+          } else {
+              text.append(predicate.toJSON(level+1)).append(",\n");
+          }
+          text.append(indentation.indent(level+1)).append("\"objective_summary\": {\n");
+          text.append(indentation.indent(level+2)).append("\"categories\": [\n");
+          for(int j=0; j < m_Info.numClasses(); j++) {
+              text.append(indentation.indent(level + 3))
+                      .append("[\"")
+                      .append(transformedClass(j))
+                      .append("\", ")
+                      .append(m_ClassDistribution[j])
+                      .append("]")
+                      .append((j < m_Info.numClasses() - 1) ? "," : "")
+                      .append("\n");
+          }
+          text.append(indentation.indent(level+2)).append("]\n");
+          text.append(indentation.indent(level+1)).append("},\n");
+          text.append(indentation.indent(level+1)).append("\"output\": ").append(output);
+
+          if (m_Successors != null) {
+              text.append(",\n");
+              text.append(indentation.indent(level+1)).append("\"children\": [\n");
+              for (int i = 0; i < m_Successors.length; i++) {
+
+                  NodePredicate childPredicate = new NodePredicate(m_Info.attribute(m_Attribute).name(),
+                          m_Info.attribute(m_Attribute).isNominal() ? "=" : ( (i==0) ? "<=" : ">" ),
+                          m_Info.attribute(m_Attribute).isNominal() ? m_Info.attribute(m_Attribute).value(i) : Utils.doubleToString(m_SplitPoint, 2),
+                          m_Info.attribute(m_Attribute).isNominal());
+
+
+                  if (i != 0) {
+                      text.append(",\n");
+                  }
+                  text.append(m_Successors[i].toJSON(childPredicate, level + 2));
+              }
+              text.append("\n");
+              text.append(indentation.indent(level+1)).append("]");
+          }
+          text.append("\n");
+          text.append(indentation.indent(level)).append("}");
+
+          return text.toString();
+      }
+
+    /**
+     * Recursively backfill the class distribution at each node into m_classDistribution
+     */
+
+    protected double[] backfillClassDistribution() {
+        if (m_ClassDistribution != null) {
+            return m_ClassDistribution;
+        }
+
+        double[] classDistribution = new double[m_Info.numClasses()];
+
+        if (m_Successors != null) {
+            for (Tree t : m_Successors) {
+                double[] childClassDistribution = t.backfillClassDistribution();
+
+                for (int j = 0; j < m_Info.numClasses(); j++) {
+                    classDistribution[j] += childClassDistribution[j];
+                }
+            }
+        }
+
+        m_ClassDistribution = classDistribution;
+        return m_ClassDistribution;
+    }
+
+
+    protected void traverseAndBackfill() {
+        backfillClassDistribution();
+        if (m_Successors == null) {
+            return;
+        }
+        for (Tree t : m_Successors) {
+            t.traverseAndBackfill();
+        }
+    }
+
 
     /**
      * Recursively backfits data into the tree.
