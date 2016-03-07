@@ -1069,13 +1069,7 @@ public class RandomTree extends AbstractClassifier implements OptionHandler,
       }
 
       protected String transformedClass(int i) {
-          if ("0".equals(m_Info.classAttribute().value(i))) {
-              return "OVERDUE";
-          } else if ("1".equals(m_Info.classAttribute().value(i))) {
-              return "PAID_OFF";
-          } else {
-              return "UNKNOWN-" + m_Info.classAttribute().value(i);
-          }
+	  return m_Info.classAttribute().value(i);
       }
 
       /**
